@@ -56,6 +56,18 @@ When run at scale (>3 genomes at once)  using Cirrus with resource prediction en
 
 Using other schedulers will probably yeld worse but comparable results, especially if there are performance bottlenecks such as shared NFS server.
 
+### Accuracy 
+
+We've run sample Illumina datasets from [BioPlantet GCAT test](http://www.bioplanet.com/gcat) that compares variants with Genome in a bottle (GiaB) reference. VCF files files are available below, let us know if your pipeline performs better!
+
+
+
+1. [Illumina-paired-end-100bp-30x HaplotypeCaller](http://gapp-east.s3.amazonaws.com/sample/GCAT_30X_Exome.HC/recalibrated.filtered.vcf.gz)
+1. [Illumina-paired-end-100bp-30x UnifiedGenotyper](http://gapp-east.s3.amazonaws.com/sample/GCAT_30X_Exome.UG/recalibrated.filtered.vcf.gz)
+1. [Illumina-paired-end-100bp-150x HaplotypeCaller](http://gapp-east.s3.amazonaws.com/sample/GCAT_150X_Exome.HC/recalibrated.filtered.vcf.gz)
+1. [Illumina-paired-end-100bp-150x UnifiedGenotyper](http://gapp-east.s3.amazonaws.com/sample/GCAT_150X_Exome.UG/recalibrated.filtered.vcf.gz)
+
+ 
 
 # Detailed explanation
 
