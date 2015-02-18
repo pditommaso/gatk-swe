@@ -23,5 +23,4 @@ else
     export GATK_JAR=s3://gapp-east/GenomeAnalysisTK.jar
 fi
 
-#CHROMOSOMES=chr22
     
