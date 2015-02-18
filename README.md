@@ -50,15 +50,22 @@ bash-3.2$ es3 ls s3://gapp-east/sample/GCAT_150X_Exome.UG/
 1424210533	15361199	s3://gapp-east/sample/GCAT_150X_Exome.UG/recalibrated.filtered.vcf.gz
 ```
 
+### Performance
+
+When run at scale (>3 genomes at once)  using Cirrus with resource prediction enbled, AWS spot instances, default automatic scaling and using S3 for storing intermediate files we usually observe runtimes <3 hours per whole human genome (40x) and compute cost rangind from $3-$5 based on whether UnifiedGenotyper or HaplotypeCaller is used, and scales to 100-1000 of whole genomes processed at the same time.
+
+Using other schedulers will probably yeld worse but comparable results, especially if there are performance bottlenecks such as shared NFS server.
+
+
 # Detailed explanation
 
-Entire worklow is submitted to scheduler as a directed graph of tasks with **ksub**. 
-gatk_pipeline.sh is used to construct and sumbit task graph for execution. We briefly cover key section of gatk_pipeline.sh below:
+Entire worklow is submitted to scheduler as a directed acyclinc graph (DAG) of tasks with **ksub**. 
+gatk_pipeline.sh is used to construct and sumbit task graph for execution. We briefly cover key sections of gatk_pipeline.sh below:
 
 
 ## Split input files
 
-For each input file we compute number of splits and submit split task to the queue for each input pair.
+For each input file compute number of splits and submit split task to the queue for each input pair.
 Split task returns task id, and after completion will emit a number of FASTQ files, that can be referred via SWE as $split_job_id:1.fastq.gz, ..., $split_job_id:N.fastq.gz
 
 
@@ -102,7 +109,7 @@ BWA tasks depends on corresponding on corresponding split task:
 
 ## Combine individual alignments
 
-Alignment from multiple alignment tasks are combined together in one file per chromosome (e.g. chr5.bam):
+Alignment from multiple alignment tasks are combined together in one file per chromosome with samtools (e.g. chr5.bam):
 
 ```
 
@@ -136,7 +143,7 @@ done
 
 ## Run Base quality recalibration
 
-BQSR is usually run on one the chromosomes (chr22):
+GATK BQSR is usually run on one the chromosomes (chr22):
 
 ```
 for chr in $CHROMOSOMES
@@ -157,6 +164,9 @@ do
 ```
 
 ## Split chromosome into sub-regions
+
+This step first scans the entire chromosome to find 1kb regions that have no chance for containing variants - no repeats, no indels and almost all bases matching reference. Chromosome is then split into N subregions using some of these safe split points, in order to make sure that no short variants (<500bp) are be affected by the splits.
+
 
 ```
 for chr in $CHROMOSOMES
@@ -182,6 +192,14 @@ done
 
 
 ## Run variant calling
+
+For each split we run variant calling that includes:
+1. Picard Deduplication
+2. Local indel realignment
+3. Application of Base Quality Recalibration data
+4. Variant calling with HaplotypeCaller or UnifiedGenotyper if GATK-Lite is provided.
+
+When UG is used, we also do additional annotation step to add MQ0 score to alignment which significantly improves quality of Variant recalibration in the next step.
 
 ```
 for chr in $CHROMOSOMES
@@ -213,6 +231,8 @@ done
 
 ## Combine partial VCFs into one
 
+Multiple partial VCF files are combined into one.
+
 ```
 
 input_array=""
@@ -230,6 +250,8 @@ combine_vcf_job_id=$(ksub   \
 
 ## Run VQSR
 
+Variant Quality Score Recalibration is performed separately for Indels and SNPS, variants are merged into final VCF file.
+
 ```
 	#run variant quality recalibration
 	# output: $vqsr_job_id:recalibrated.filtered.vcf.gz
@@ -244,7 +266,8 @@ vqsr_job_id=$(ksub \
 ```
 
 ## Publish results to S3
-[publish.sh](master/publish/publish.sh)
+
+Final VCF file is saved on S3 using sample name as directory prefix. 
 
 ```
 	# save results to S3 and make them publicly accessible over HTTP
@@ -255,3 +278,16 @@ publish_job_id=$(ksub \
 		    --wrap="bash publish/publish.sh")
 		    
 ```
+
+# SWE
+
+to be described soon
+
+# Cirrus specific command lines
+to be described soon
+
+
+## Included 3rd party software
+Coming soon.
+
+
