@@ -1,0 +1,7 @@
+# Sample exome settings from Bioplanet GCAT test - Illumina-100bp-pe-30x
+#
+NAME=GCAT_30X_Exome.$VariantCaller
+ANALYSIS=exome
+SWE_ENGINE=clusterk
+INPUT_FASTQ=paired[$SAMPLE_DATA/gcat_set_025_1.fastq.gz,$SAMPLE_DATA/gcat_set_025_2.fastq.gz]
+

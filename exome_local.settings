@@ -1,0 +1,14 @@
+# Settings for local execution will replace Cirrus command line tools with simple perl wrappers for local execution and testing
+# 
+
+export PATH=./bin/local_ktools:$PATH
+NAME=SAMPLE_EXOME_25
+ANALYSIS=exome
+INPUT_FASTQ=local[/tmp/gcat_set_025_1.fastq.gz,/tmp/gcat_set_025_2.fastq.gz]
+
+# GATK reference file, should have trailing slash
+export GATK_REFERENCE=/tmp/gatk-reference/
+
+export SWE_ENGINE=local
+export KSUB_CACHE=1
+

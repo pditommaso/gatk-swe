@@ -1,0 +1,384 @@
+#!/usr/bin/perl
+#  Copyright (C) 2013-2015 Clusterk Inc
+#
+#   Simple workflow engine supported commands:
+#   submit
+#   get 
+#   wait 
+#
+#
+#
+#
+#
+
+
+
+
+use strict;
+use File::Basename;
+use Digest::MD5 qw(md5 md5_hex md5_base64);
+use Cwd 'abs_path';
+#use clusterk;
+
+
+my $swe_path=abs_path($0); # path to SWE executable which will be uploaded to task working directory
+
+#because environment is inherited by the task, we need those if we would like to be able to run from MacOS 
+$ENV{TMPDIR}="/tmp";
+$ENV{PATH}.=":/opt/clusterk/bin";
+
+my $command=$ARGV[0];
+
+my $engine=$ENV{SWE_ENGINE} || "local"; # set default execution engine to Local
+die "Incorrect SWE_ENGINE" unless $engine =~/(local|clusterk)/;
+my $verbose=$ENV{SWE_VERBOSE}; # in verbose mode we also print a lot of stuff to STDERR
+my $dev_mode=$ENV{SWE_DEV_MODE}; # in dev mode, if similar task has already been started and succeeded, do not run it, and return previous task ID
+
+
+
+my $workflow_path=$ENV{SWE_LOCAL_ENGINE_PATH} || "/tmp/swe";
+my $S3_PREFIX;
+if ($engine eq "local")
+{
+    #path to use for storing files and creating process working directories
+}
+else
+{
+    $S3_PREFIX=$ENV{SWE_S3_STORAGE} ||die "SWE_S3_STORAGE path must be defined to work on cluster environment";
+}
+
+if ($S3_PREFIX=~/s3:\/\/east-temp/)
+{
+    $S3_PREFIX="s3://east-temp-".(($ENV{K_JOB_ID} +0)%10);
+}
+
+# swe submit ...parameters...
+# in local mode - we simply create a temp folder in /tmp and execute the command there
+#                 and return task_id _after it succeeded_  
+# in clusterk mode we submit command to ksub 
+#                 and return task_id _after it was submitted !, thus proper depencency structure is critical
+# submission is allowed only via --wrap=""
+# example:   
+# $swe submit -d parent_task_id -iinput=value -e 1000 -m 2000 --wrap="pipeline command"
+# 75
+# input are defined as -iname=value, and simply passed as environmental variables with K_ prefix
+#
+#
+my $i;
+
+
+if ($command eq "dc" )
+{
+
+    my $local_name="";    
+    my $path=$ARGV[1];
+
+    if ($engine eq "local")
+    {
+	die if system( "ln -s $path");
+	$local_name=basename("$path")
+
+    }
+    else
+    {
+    
+        my $username=`whoami`;
+	chomp $username;
+        die "path $path doesn't exist " if system("es3 test $path");
+
+        die unless $path =~/^(s3\S+\/)([^\/]*)/;
+        my $dirname=$1;
+        my $filename=$2;
+
+        my $local_path=$dirname;
+        $local_path=~s/[\W]/_/g;
+        $local_path.=$username;
+        $local_path="/tmp/download-cached-".$local_path;
+
+        #start by requesting the lock
+        open(FL,">$local_path.lock")||die "unable to open lock file";
+        flock(FL,2)||die "Flock failed";
+
+        #obtained lock lets create directory first
+
+        unless ( -e $local_path )
+        {	
+	    die if system("mkdir $local_path");
+	}
+
+	if ($filename) #we were asked to sync a file
+	{
+	    unless (-e "$local_path/$filename")
+    	    {
+	        die if system("es3 cat $path > $local_path/$filename.tmp");
+	        die if system("mv  $local_path/$filename.tmp  $local_path/$filename");
+    	    }
+    	    system("ln -s $local_path/$filename");
+	    $local_name=$filename;
+	}
+	else
+	{
+	    die if system("es3 -n 5 sync $path $local_path/");
+	die "malformed path" unless $path =~/\/([^\/]+)\/$/;
+	    system("ln -s $local_path/ $1");
+	    $local_name=$1;
+	}
+	close FL;
+    }
+
+    print $local_name;                                            
+                                                    
+exit 0;
+}
+
+
+if ($command eq "list")
+{
+    open(FL,"$workflow_path/$ARGV[1]/output.txt")||die;
+    while (<FL>) {print;}
+    exit(0);
+}
+
+
+
+if ($command eq "fetch")
+{
+    my @local_names=();
+    for ($i=1;$i<scalar(@ARGV);$i++)
+    {
+        push (@local_names,fetch($ARGV[1]));
+    }
+    print join(" ",@local_names);
+    exit(0);
+}
+
+
+
+
+if ($command eq "store")
+{
+    my @local_names=();
+    for ($i=1;$i<scalar(@ARGV);$i++)
+    {
+        push (@local_names,store($ARGV[1]));
+    }
+    print join(" ",@local_names);
+
+    exit(0);
+}
+
+
+if ($command eq "emit")
+{
+    
+    if ($ARGV[1] eq "variable")
+    {
+        die "not really implemented";
+        print emit($ARGV[1],$ARGV[2], $ARGV[3]);
+        exit(0); 
+    }
+
+    if ($ARGV[1] eq "file")
+    {
+        #print store($ARGV[2])
+        for ($i=2;$i<scalar(@ARGV);$i++)
+        {
+	    my $fn=store($ARGV[$i]);
+            emit($ARGV[1],$ARGV[$i], $fn);
+            print STDERR "emitted $fn\n";
+        }
+        exit(0); 
+    }
+
+    die;
+}
+
+# Saves a file to local drive or S3 (in clusterk mode)
+#
+#
+sub store 
+{
+    my $local_file=shift;
+    die "$local_file not found" unless -e "$local_file";
+
+    my $taskid=get_task_id();
+  
+    my $dir=dirname($local_file);
+    $dir="" if $dir eq ".";
+    $dir="/".$dir if $dir;;
+
+    if ($engine eq "local")
+    {
+        my $path;
+        if ($taskid)
+        {
+           $path=$workflow_path."/$taskid".$dir;
+        }
+        else
+        {
+           $path=$workflow_path."/".md5_hex(dirname($local_file));
+        }
+        die if system("mkdir -p $path");
+        die if system("cp $local_file $path/");
+        
+        my $new_path="$path/".basename($local_file);
+        die unless -e $new_path;
+        return $new_path;
+    }
+
+    if ($engine eq "clusterk")
+    {
+        my $s3_path;
+        if ($taskid)
+        {
+    	    $s3_path=$S3_PREFIX."/".prefix_task_id($taskid).$dir;
+        }
+        else
+        {
+            $s3_path=$S3_PREFIX."/".prefix_task_id($taskid)."/".md5_hex(dirname($local_file));;
+        }
+    	#retry es3 if it fails
+        unless (run("es3 -n 10 sync $local_file $s3_path/",1))
+	{
+		sleep(rand()*120);
+	       run("es3  -n 2 sync $local_file $s3_path/");
+	}
+
+        return "$s3_path/".basename($local_file);
+    }
+
+}
+
+sub prefix_task_id 
+{
+    my $task_id=shift;
+    return substr(md5_hex($task_id),0,5)."-$task_id";
+}
+
+sub emit 
+{
+    my ($type, $var,$value)=@_;
+    my $taskid=get_task_id();
+    my $value =~s/\n/ /g;
+    die "Cannot obtain task id, when starting outside a task environment please use ./swe store" unless $taskid;
+}
+
+#fetch a file to local folder, return a local file name
+#files from same path should end up in the same folder: for example  44:out.bam and 44:out.bam.bai, but 45:out.bam should be in a different folder
+sub fetch {
+    my $file = shift;
+    if ($file eq "-") {$file=<STDIN>; chomp($file);}
+
+    if ( ($engine eq "local") and ($file !~/s3:\/\//))
+    {
+        my $local_dir;
+        my $remote_name;
+        my $local_name;
+        if ($file=~/^(\d+):(\S+)$/)
+        {
+            my $taskid=$1;
+            my $path=$2;
+
+            my $dir=dirname($path);
+            $dir="" if $dir eq ".";
+            my $s3_path=$workflow_path."/$taskid";
+            $s3_path.="/$dir" if $dir;
+            #$dir="." if $dir eq "";
+            $local_dir="./swe_$taskid";
+            $local_dir.="/dir" if $dir;
+
+            $local_name="$local_dir/".basename($path);
+            $remote_name="$s3_path/".basename($path);
+        }
+        else
+        {
+            my $path=$file;
+            $remote_name=$path;
+            my $dir=dirname($path);
+            $dir="" if $dir eq ".";
+
+            $local_dir="./swe_0";
+            $local_dir.="/$dir" if $dir;
+            $local_name="$local_dir/".basename($path);
+        }
+
+
+        die "$file does not exist" unless -e $remote_name;
+        run("mkdir -p $local_dir");
+        system("rm $local_name ") if -e $local_name;
+        run ("ln -s $remote_name $local_name");
+        die unless -e $local_name;
+        return $local_name;
+    }
+    else
+    {
+        if ($file=~/^(\d+):(\S+)$/)
+        {
+            my $taskid=$1;
+            my $path=$2;
+            # path is relative to the directory
+            my $dir=dirname($path);
+            $dir="" if $dir eq ".";
+            my $s3_path=$S3_PREFIX."/".prefix_task_id($taskid);
+            $s3_path.="/$dir" if $dir;
+            #$dir="." if $dir eq "";
+            my $local_dir="./swe_$taskid";
+            $local_dir.="/dir" if $dir;
+
+
+    	    #retry es3 if it fails
+    	    unless (run("es3 -n 10 sync $s3_path/".basename($path)." $local_dir/",1))
+	    {
+		sleep( rand()*120);
+		    run("es3 -n 2 sync $s3_path/".basename($path)." $local_dir/");
+	    }
+	    return "$local_dir/".basename($path);
+	                
+        }
+        else
+        {
+
+    	    unless (run("es3 -n 10  sync $file ./".md5_hex(dirname($file))."/",1))
+	    {
+		sleep( rand()*120);
+		    run("es3 -n 2   sync $file ./".md5_hex(dirname($file))."/");
+	    }
+
+            return "./".md5_hex(dirname($file))."/".basename($file);
+        }        
+    }
+}
+
+
+die "Unsupported command";
+
+sub get_task_id
+{
+     return $ENV{CLUSTERK_TASK_ID}+0;
+}
+
+#Run shell command. If ignore errors enabled, will return success if command succeeded.
+sub run
+{
+
+    my ($cmd, $ignore_errors)=@_;
+    my $time = localtime;
+    print STDERR "run(): $cmd\n" if $verbose;
+
+    my $ret=system("bash","-o","pipefail","-c",$cmd,">&2");
+    if ($ret != 0)
+    {
+        print  STDERR "run():Command ($cmd) failed with exit code $ret ....";
+        if ($ignore_errors)
+        {
+            print  STDERR  "Error ignored !!!\n";
+        }
+        else
+        {
+            print  STDERR  "\n";
+            exit(1);
+        }
+    }
+    return ($ret == 0);
+}
+

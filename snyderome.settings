@@ -1,0 +1,6 @@
+# Snyderome whole genome data
+#
+NAME=Snyderome
+# 4 samples at once
+INPUT_FASTQ="paired[s3://gapp-east/snyderome/A804NLABXX.s_1_1.fq.gz,s3://gapp-east/snyderome/A804NLABXX.s_1_2.fq.gz] paired[s3://gapp-east/snyderome/A804NLABXX.s_2_1.fq.gz,s3://gapp-east/snyderome/A804NLABXX.s_2_2.fq.gz] paired[s3://gapp-east/snyderome/A804NLABXX.s_3_1.fq.gz,s3://gapp-east/snyderome/A804NLABXX.s_3_2.fq.gz] paired[s3://gapp-east/snyderome/A804NLABXX.s_4_1.fq.gz,s3://gapp-east/snyderome/A804NLABXX.s_4_2.fq.gz]"
+ANALYSIS=WGS

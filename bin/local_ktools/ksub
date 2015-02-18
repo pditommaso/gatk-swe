@@ -1,0 +1,96 @@
+#!/usr/bin/perl
+
+use strict;
+use Getopt::Long;
+use File::Basename;
+use File::Spec;
+use Digest::MD5 qw(md5 md5_hex md5_base64);
+# very simple ksub emulator for local execution
+# run commands in a temporary directory under /tmp/ksub
+
+my $tmpdir="/tmp/ksub";
+
+
+my $cmd_line;
+
+my @ignored;
+my @env;
+my @uploads;
+my $deps;
+
+#to simplify debugging & development, allow reusing task ids if they completed successfully
+
+my $md5_args=md5_hex(join(" ",@ARGV));
+
+
+if ($ENV{KSUB_CACHE})
+{
+    if (-e "$tmpdir/$md5_args")
+    {
+	my $task_id=`cat $tmpdir/$md5_args`;
+	chomp($task_id);
+	print "$task_id";
+	exit;
+    }
+
+}
+
+
+GetOptions ("c=s"=>\@ignored, "q=s"=>\@ignored,"d=s"=>\$deps, "j=s"=>\@ignored, "p=s"=>\@ignored, "t=s"=>\@ignored,"e=s"=>\@ignored,"m=s"=>\@ignored,"de=s"=>\@ignored,"dm=s"=>\@ignored,"th=s"=>\@ignored,
+	    'wrap=s' => \$cmd_line, "v=s"=>\@env,"u=s"=>\@uploads);
+
+
+#set enviroment variables
+foreach (@env)
+{
+    my @a=split("=");
+    $ENV{$a[0]}=$a[1];
+}
+
+die if system("mkdir -p $tmpdir");
+
+#find next unused task_id
+
+my $task_id;
+for ($task_id=1; -e "$tmpdir/$task_id";$task_id++){}
+
+my $task_dir="$tmpdir/$task_id";
+die if system("mkdir -p $task_dir");
+
+#process uploads
+
+
+foreach (@uploads)
+{
+    my $abs_path=File::Spec->rel2abs( $_ ); 
+    die if system("ln -s $abs_path $task_dir/".basename($_));
+
+    if (/\.tar.gz$/)
+    {
+	die if system("cd $task_dir && tar xf ".basename($_));
+    }
+}
+
+#execute command
+
+my @deplist;
+my @faileddeplist;
+
+foreach (split(",",$deps))
+{
+    push(@deplist,$_);
+    push(@faileddeplist,$_) unless -e "$tmpdir/$_/.success";
+    die unless -e "$tmpdir/$_/.success";
+    
+}
+$ENV{CLUSTERK_TASK_ID}=$task_id;
+$ENV{CLUSTERK_TASK_ATTEMPT}=$task_id;
+$ENV{CLUSTERK_DEPS}=join(",",@deplist);
+$ENV{CLUSTERK_FAILED_DEPS}=join(",",@faileddeplist);
+
+die "execution failed" if system("cd $task_dir && $cmd_line >&2");
+system("touch $task_dir/.success");
+#return TASK_ID
+print "$task_id";
+
+system("echo $task_id > $tmpdir/$md5_args");
