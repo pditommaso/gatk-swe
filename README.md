@@ -28,7 +28,7 @@ By default pipeline required Cirrus command line tools to be installed and submi
 
 Please edit general_settings.sh to point to your S3 bucket, make sure that your input files and hg19 reference is available on S3, and start sample exome workflow:
 
-```
+```bash
 bash-3.2$ kauth --server my.cirrus.scheduler.com --login login --password passwd
 bash-3.2$ bash gatk_pipeline.sh settings/exome-30x.settings 2>/dev/null
 Will be using chr22 for base quality recalibration.
@@ -45,7 +45,7 @@ bash-3.2$
 
 After completion results will be available in S3, e.g.:
 
-```
+```bash
 bash-3.2$ es3 ls s3://gapp-east/sample/GCAT_150X_Exome.UG/
 1424210533	15361199	s3://gapp-east/sample/GCAT_150X_Exome.UG/recalibrated.filtered.vcf.gz
 ```
@@ -81,7 +81,7 @@ For each input file compute number of splits and submit split task to the queue 
 Split task returns task id, and after completion will emit a number of FASTQ files, that can be referred via SWE as $split_job_id:1.fastq.gz, ..., $split_job_id:N.fastq.gz
 
 
-```
+```bash
 for input in $INPUT_FASTQ
 do
 	
@@ -105,7 +105,7 @@ done
 For each individual split (e.g. 3.fastq.gz) we run alignment with BWA mem, and emit one alignment file per chromosome. (e.g. chr1.bam,...,chrX.bam).
 BWA tasks depends on corresponding on corresponding split task:
 
-```
+```bash
 		for split in $(seq 1 $splits)
 		do
 			# align.sh: accepts input split file, produces alignment, split by chromosome
@@ -123,7 +123,7 @@ BWA tasks depends on corresponding on corresponding split task:
 
 Alignment from multiple alignment tasks are combined together in one file per chromosome with samtools (e.g. chr5.bam):
 
-```
+```bash
 
 for chr in $CHROMOSOMES
 do
@@ -157,7 +157,7 @@ done
 
 GATK BQSR is usually run on one the chromosomes (chr22):
 
-```
+```bash
 for chr in $CHROMOSOMES
 do
 	...
@@ -180,7 +180,7 @@ do
 This step first scans the entire chromosome to find 1kb regions that have no chance for containing variants - no repeats, no indels and almost all bases matching reference. Chromosome is then split into N subregions using some of these safe split points, in order to make sure that no short variants (<500bp) are be affected by the splits.
 
 
-```
+```bash
 for chr in $CHROMOSOMES
 do
 	...
@@ -213,7 +213,7 @@ For each split we run variant calling that includes:
 
 When UG is used, we also do additional annotation step to add MQ0 score to alignment which significantly improves quality of Variant recalibration in the next step.
 
-```
+```bash
 for chr in $CHROMOSOMES
 do
 	...
@@ -245,7 +245,7 @@ done
 
 Multiple partial VCF files are combined into one.
 
-```
+```bash
 
 input_array=""
 for combine_vcf_job in $combine_vcf_job_ids
@@ -264,7 +264,7 @@ combine_vcf_job_id=$(ksub   \
 
 Variant Quality Score Recalibration is performed separately for Indels and SNPS, variants are merged into final VCF file.
 
-```
+```bash
 	#run variant quality recalibration
 	# output: $vqsr_job_id:recalibrated.filtered.vcf.gz
 
@@ -281,7 +281,7 @@ vqsr_job_id=$(ksub \
 
 Final VCF file is saved on S3 using sample name as directory prefix. 
 
-```
+```bash
 	# save results to S3 and make them publicly accessible over HTTP
 publish_job_id=$(ksub \
 		    -v input=$vqsr_job_id:recalibrated.filtered.vcf.gz \
