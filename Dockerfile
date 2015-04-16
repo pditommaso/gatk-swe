@@ -17,4 +17,6 @@ RUN wget -q -O- 'http://downloads.sourceforge.net/project/samtools/samtools/1.1/
 
 RUN wget -q http://genome.crg.es/~epalumbo/gene2farm/GenomeAnalysisTK-2.7-4.tar.bz2 -O- | tar xj
 
-RUN apt-get install -y openjdk-7-jre-headless
+RUN apt-get install -y openjdk-7-jre-headless parallel
+
+ENV SHELL /bin/bash
